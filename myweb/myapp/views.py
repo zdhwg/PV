@@ -6,6 +6,7 @@ import numpy as np
 import datetime
 import xml
 from myapp import AR_error
+import json
 # Create your views here.
 #定义展示函数
 model=settings.MODEL
@@ -14,36 +15,38 @@ Arror_flag = False #是否加入自回归校正
  #插入函数
 def post(request):
     if request.method == "POST":
-        if request.POST:
-            I = request.POST.getlist("I", None)#光照强度
-            T = request.POST.getlist("T", None)#板温
-            P = request.POST.getlist("P", None)#光伏功率信息
-            if Arror_flag:
-                error=request.POST.get("error",None)#误差信息
+        post_data = json.loads(request.body)
+        I = post_data.get("I") #光照强度
+        T = post_data.get("T") #板温
+        P = post_data.get("P") #光伏功率信息
+        if(len(I)!=16 or len(T)!=16 or len(P)!=16):
+            return HttpResponse('输入错误')
+        if Arror_flag:
+            error=request.POST.get("error",None)#误差信息
             #需要经过数据处理
-            I=fill(I)
-            T=fill(T)
-            P=fill(P)
-            input_x=np.vstack((I,T,P)).T
-            print("输入数据大小",input_x.shape)
-            input_x=input_x.reshape((1,16,3))#input_x的格式
-            print("预测中......") 
-            predict=model.predict(input_x, verbose=0)#
-            predict=predict.reshape(8,1)
-            predict[predict<0]=0
-            if Arror_flag:
-                predict+=AR_error.AR_error(error,cof)#自回归校正
-            print("预测完成")
-            path = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M")
-            print_xml(predict,file="./"+path+".xml")#xml保存地址
-            print("xml已输出")
-            now = (datetime.datetime.now()+datetime.timedelta(minutes=15)).strftime("%Y-%m-%d %H:%M")
-            twz = models.message.objects.create(I=I[0], T=T[0],Time=now,predict_result=predict[0])
-            #objects.create 往数据表中插入内容的方法
-            twz.save()
-            return HttpResponse('success')
-        else:
-            return HttpResponse('输入为空')
+        I=fill(I)
+        T=fill(T)
+        P=fill(P)
+        input_x=np.vstack((I,T,P)).T
+        print("输入数据大小",input_x.shape)
+        input_x=input_x.reshape((1,16,3))#input_x的格式
+        print("预测中......") 
+        predict=model.predict(input_x, verbose=0)#
+        predict=predict.reshape(8,1)
+        predict[predict<0]=0
+        if Arror_flag:
+            predict+=AR_error.AR_error(error,cof)#自回归校正
+        print("预测完成")
+        path = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M")
+#         print_xml(predict,file="./"+path+".xml")#xml保存地址
+        doc = print_xml(predict)#xml保存地址
+        print("xml已输出")
+        now = (datetime.datetime.now()+datetime.timedelta(minutes=15)).strftime("%Y-%m-%d %H:%M")
+        twz = models.message.objects.create(I=I[0], T=T[0],Time=now,predict_result=predict[0])
+        #objects.create 往数据表中插入内容的方法
+        twz.save()
+        return HttpResponse(doc, content_type='text/xml')
+       
     else:
         return HttpResponse('方法错误')
 #数据预处理
@@ -57,7 +60,7 @@ def fill(df):
        
     return df
 #定义输出xml函数
-def print_xml(df,file):   
+def print_xml(df):   
     l=df.shape[0]
     doc = xml.dom.minidom.Document() 
     #创建根节点
@@ -123,7 +126,7 @@ def print_xml(df,file):
 
         objectdata.appendChild(objectunitlist)
         root.appendChild(objectdata)
-    f = open(f'{file}', 'w')
-    doc.writexml(f, indent='\t', addindent='\t', newl='\n', encoding="utf-8")
-    f.close()
-    return doc
+#     f = open(f'{file}', 'w')
+#     doc.writexml(f, indent='\t', addindent='\t', newl='\n', encoding="utf-8")
+#     f.close()
+    return doc.toxml()
